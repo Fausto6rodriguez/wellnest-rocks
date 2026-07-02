@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quarterly Rocks Workbook · Wellnest</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -761,6 +764,10 @@ function save() {
 }
 
 function saveToSupabase() {
+  if (!_authSession) {
+    console.warn('saveToSupabase: no auth session, skipping');
+    return;
+  }
   D._v = DATA_VERSION;
   var payload = { id: SB_ID, data: D, updated_at: new Date().toISOString() };
   fetch(SB_URL + '/rest/v1/' + SB_TABLE, {
@@ -768,8 +775,14 @@ function saveToSupabase() {
     headers: sbHeaders(),
     body: JSON.stringify(payload)
   }).then(function(r) {
-    if (!r.ok) r.text().then(function(t){ console.warn('Supabase save error:', t); });
-    else setSyncStatus('saved');
+    if (!r.ok) {
+      r.text().then(function(t){
+        console.warn('Supabase save error status:', r.status, 'body:', t);
+        setSyncStatus('error');
+      });
+    } else {
+      setSyncStatus('saved');
+    }
   }).catch(function(e) { console.warn('Supabase save failed:', e); setSyncStatus('error'); });
 }
 
@@ -809,13 +822,16 @@ function load() {
   fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?id=eq.' + SB_ID + '&select=data', {
     headers: {
       'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + SB_KEY
+      'Authorization': 'Bearer ' + authToken()
     }
   }).then(function(r) { return r.json(); })
   .then(function(rows) {
+    console.log('Supabase load response:', JSON.stringify(rows).substring(0, 200));
     if (rows && rows.length > 0 && rows[0].data) {
       applyData(rows[0].data);
       try { D._v=DATA_VERSION; localStorage.setItem(STORE, JSON.stringify(D)); } catch(e) {}
+    } else {
+      console.warn('Supabase returned no rows — RLS may be blocking read. Token used:', authToken() ? 'session token' : 'anon key');
     }
     setSyncStatus('');
     bootApp(); // seeds run inside bootApp after data is applied
